@@ -1,0 +1,851 @@
+#Script Data Science
+
+#----Preamble----
+
+      library(rstudioapi)
+      library(readxl)
+      library(readr)
+      library(shiny)
+      library(pastecs)
+      library(ggpubr)
+      library(summarytools)
+      library(psych)
+      library(doBy)
+      library(modeest)
+      library(ggplot2)
+      library(reshape2)
+      library(Hmisc)
+      library(dplyr)
+      library(tidyr)
+      library(cowplot)
+      library(zoo)
+      library(nortest)
+      library(ggplot2)
+      library(caret)
+      library(ROSE)
+      library(pROC)
+      library(tidyverse)
+      library(gridExtra)
+      library(xgboost)
+      library(randomForest)
+      library(glmnet)
+
+      current_path = rstudioapi::getActiveDocumentContext()$path 
+      setwd(dirname(current_path ))
+      print( getwd() )
+
+      
+#----DB_Read----
+      
+      Data_Original <- read_csv("Data/data01.csv")
+      Data_Workable = Data_Original;View(Data_Workable)
+      attach(Data_Workable)
+      
+      #String Standarization
+      names(Data_Workable) <- gsub(" ","_",names(Data_Workable));Data_Workable
+      col_index <- which(colnames(Data_Workable) == "NT-proBNP")
+      colnames(Data_Workable)[col_index] <- "NT_proBNP"
+
+#----Descriptive Analysis----
+
+      #1. Summary Functions:
+          str(Data_Workable) 
+          summary(Data_Workable)
+          stat.desc(Data_Workable)
+          descr(Data_Workable)
+          dfSummary(Data_Workable)
+      
+      #2. Correlation:
+          cor(Data_Workable)
+      
+      #3. Graphs:
+          #Hist (all DF):
+          
+          #hist.data.frame(Data_Workable)
+          #pairs(Data_Workable)
+          
+          #Hist, QQplot, Density and Boxplot Iteration:
+          #Saves every graph in Graf folder
+          
+          setwd("Graf")
+          for (col in names(Data_Workable)) {
+            jpeg(paste("Plots_",col,".jpeg"), width = 2400, height = 800)
+            par(mfrow=c(2,2))
+            hist(Data_Workable[[paste(col)]], main = paste("Histograma ", col), xlab = col)
+            qqnorm(Data_Workable[[paste(col)]], main = paste("Normal Q-Q plot ", col))
+            qqline(Data_Workable[[paste(col)]])
+            dens = density(Data_Workable[[paste(col)]], na.rm = TRUE)
+            plot(dens, main = paste("Densidad", col))
+            boxplot(Data_Workable[[paste(col)]], main =paste("Boxplot ", col) )
+            dev.off()
+          }
+          setwd(file.path(getwd(), ".."))
+          getwd()
+          
+          ggplot(stack(Data_Workable), aes(x = ind, y = values)) +
+            geom_boxplot() +
+            theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+          
+          par(mfrow=c(1,1))
+
+#----Data Manipulation: Drop non important data----
+      
+      #1. Drop observation with outcome variable NA
+          Data_Workable <- Data_Workable[!(Data_Workable$ID == "162338"),]
+      
+      #2. Drop Group and ID
+          Data_Workable <- subset(Data_Workable, select = -c(group, ID))
+          summary(Data_Workable)
+
+#----Data Manipulation: Imputation for Missing Values----
+          
+      #Data Backup    
+          Data_Imputed <- Data_Workable
+          attach(Data_Workable)
+
+      #1. BMI----
+      
+          # 214/1176
+          # 18.19%
+          
+          #Cor
+              options(scipen=999)
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "BMI"],Data_Workable$BMI, use='complete.obs');data_cor
+              #Resp: Low to All
+          
+          par(mfrow=c(1,3))
+          #Behavior
+              hist(Data_Workable$BMI, main = "Histograma de BMI", xlab = col)
+              qqnorm(Data_Workable$BMI)
+              qqline(Data_Workable$BMI)
+              dens = density(Data_Workable$BMI, na.rm = TRUE)
+              plot(dens, main ="Densidad de BMI")
+              #Resp: Not Normal
+              
+          #Simple imputation: Median
+              Data_Imputed$BMI[is.na(Data_Imputed$BMI)] <- median(Data_Imputed$BMI, na.rm = TRUE)
+              summary(Data_Imputed$BMI)
+              summary(Data_Workable$BMI)
+
+      #2. Heart rate----
+      
+          #12/1176
+          #1.02%
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "heart_rate"],Data_Workable$heart_rate, use='complete.obs');data_cor
+              #Resp: Low to All
+          
+          #Behavior
+              hist(Data_Workable$heart_rate, xlab = col)
+              qqnorm(Data_Workable$heart_rate)
+              qqline(Data_Workable$heart_rate)
+              dens = density(Data_Workable$heart_rate, na.rm = TRUE)
+              plot(dens, main ="Densidad de HR")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$heart_rate);resultsSW
+              resultsAD <- ad.test(Data_Workable$heart_rate);resultsAD
+              resultsKS <- ks.test(Data_Workable$heart_rate, "pnorm", mean(Data_Workable$heart_rate), sd(Data_Workable$heart_rate));resultsKS
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$heart_rate[is.na(Data_Imputed$heart_rate)] <- median(Data_Imputed$heart_rate, na.rm = TRUE)
+              summary(Data_Imputed$heart_rate)
+              summary(Data_Workable$heart_rate)
+      
+      #3. Systolic----
+          
+          #15/1176
+          #1.27%
+              
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "Systolic_blood_pressure"],Data_Workable$Systolic_blood_pressure, use='complete.obs');data_cor
+              #Resp: Low for all
+          
+          #Behavior
+              hist(Data_Workable$Systolic_blood_pressure, xlab = col)
+              qqnorm(Data_Workable$Systolic_blood_pressure)
+              qqline(Data_Workable$Systolic_blood_pressure)
+              dens = density(Data_Workable$Systolic_blood_pressure, na.rm = TRUE)
+              plot(dens, main ="Densidad de Syst")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$Systolic_blood_pressure);resultsSW
+              resultsAD <- ad.test(Data_Workable$Systolic_blood_pressure);resultsAD
+              resultsKS <- ks.test(Data_Workable$Systolic_blood_pressure, "pnorm", mean(Data_Workable$Systolic_blood_pressure), sd(Data_Workable$Systolic_blood_pressure))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$Systolic_blood_pressure[is.na(Data_Imputed$Systolic_blood_pressure)] <- median(Data_Imputed$Systolic_blood_pressure, na.rm = TRUE)
+              summary(Data_Imputed$Systolic_blood_pressure)
+              summary(Data_Workable$Systolic_blood_pressure)
+      
+      #4. Diastolic----
+      
+          #15/1176
+          #1.27%
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "Diastolic_blood_pressure"],Data_Workable$Diastolic_blood_pressure,use='complete.obs');data_cor
+              #Resp: Low for all, 0.4 Systolic
+          
+          #Behavior
+              hist(Data_Workable$Diastolic_blood_pressure)
+              qqnorm(Data_Workable$Diastolic_blood_pressure)
+              qqline(Data_Workable$Diastolic_blood_pressure)
+              dens = density(Data_Workable$Diastolic_blood_pressure, na.rm = TRUE)
+              plot(dens, main ="Densidad de Dias")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$Diastolic_blood_pressure);resultsSW
+              resultsAD <- ad.test(Data_Workable$Diastolic_blood_pressure);resultsAD
+              resultsKS <- ks.test(Data_Workable$Diastolic_blood_pressure, "pnorm", mean(Data_Workable$Diastolic_blood_pressure), sd(Data_Workable$Diastolic_blood_pressure))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$Diastolic_blood_pressure[is.na(Data_Imputed$Diastolic_blood_pressure)] <- median(Data_Imputed$Diastolic_blood_pressure, na.rm = TRUE)
+              summary(Data_Imputed$Diastolic_blood_pressure)
+              summary(Data_Workable$Diastolic_blood_pressure)
+      
+      #5. Respiratory Rate----
+      
+          #12/1176
+          #1.02%
+              
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "Respiratory_rate"],Data_Workable$Respiratory_rate,use='complete.obs');data_cor
+              #Resp: Low for all
+          
+          #Behavior
+              hist(Data_Workable$Respiratory_rate)
+              qqnorm(Data_Workable$Respiratory_rate)
+              qqline(Data_Workable$Respiratory_rate)
+              dens = density(Data_Workable$Respiratory_rate, na.rm = TRUE)
+              plot(dens, main ="Densidad de RR")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$Respiratory_rate);resultsSW
+              resultsAD <- ad.test(Data_Workable$Respiratory_rate);resultsAD
+              resultsKS <- ks.test(Data_Workable$Respiratory_rate, "pnorm", mean(Data_Workable$Respiratory_rate), sd(Data_Workable$Respiratory_rate))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$Respiratory_rate[is.na(Data_Imputed$Respiratory_rate)] <- median(Data_Imputed$Respiratory_rate, na.rm = TRUE)
+              summary(Data_Imputed$Respiratory_rate)
+              summary(Data_Workable$Respiratory_rate)
+      
+      #6. Temp----
+          
+          #118/1176
+          #10.03%
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "temperature"],Data_Workable$`temperature`,use='complete.obs');data_cor
+              #Resp: Low for all
+          
+          #Behavior
+              hist(Data_Workable$`temperature`)
+              qqnorm(Data_Workable$`temperature`)
+              qqline(Data_Workable$`temperature`)
+              dens = density(Data_Workable$`temperature`, na.rm = TRUE)
+              plot(dens, main ="Densidad de Temp")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$`temperature`);resultsSW
+              resultsAD <- ad.test(Data_Workable$`temperature`);resultsAD
+              resultsKS <- ks.test(Data_Workable$`temperature`, "pnorm", mean(Data_Workable$`temperature`), sd(Data_Workable$`temperature`))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$`temperature`[is.na(Data_Imputed$`temperature`)] <- median(Data_Imputed$`temperature`, na.rm = TRUE)
+              summary(Data_Imputed$`temperature`)
+              summary(Data_Workable$`temperature`)
+      
+      #7. SP O2----
+      
+          #12/1176
+          #1.02%
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "SP_O2"],Data_Workable$SP_O2,use='complete.obs');data_cor
+              #Resp: Low for all
+          
+          #Behavior
+              hist(Data_Workable$SP_O2)
+              qqnorm(Data_Workable$SP_O2)
+              qqline(Data_Workable$SP_O2)
+              dens = density(Data_Workable$SP_O2, na.rm = TRUE)
+              plot(dens, main ="Densidad de SP02")
+              #Resp: Not Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$SP_O2);resultsSW
+              resultsAD <- ad.test(Data_Workable$SP_O2);resultsAD
+              resultsKS <- ks.test(Data_Workable$SP_O2, "pnorm", mean(Data_Workable$SP_O2), sd(Data_Workable$SP_O2))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$SP_O2[is.na(Data_Imputed$SP_O2)] <- median(Data_Imputed$SP_O2, na.rm = TRUE)
+              summary(Data_Imputed$SP_O2)
+              summary(Data_Workable$SP_O2)
+      
+      #8. Urine----
+      
+          #35/1176
+          #2.97%
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "Urine_output"],Data_Workable$Urine_output,use='complete.obs');data_cor
+              #Resp: low for all
+          
+          #Behavior
+              hist(Data_Workable$Urine_output)
+              qqnorm(Data_Workable$Urine_output)
+              qqline(Data_Workable$Urine_output)
+              dens = density(Data_Workable$Urine_output, na.rm = TRUE)
+              plot(dens, main ="Densidad de Urine")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$Urine_output);resultsSW
+              resultsAD <- ad.test(Data_Workable$Urine_output);resultsAD
+              resultsKS <- ks.test(Data_Workable$Urine_output, "pnorm", mean(Data_Workable$Urine_output), sd(Data_Workable$Urine_output))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$Urine_output[is.na(Data_Imputed$Urine_output)] <- median(Data_Imputed$Urine_output, na.rm = TRUE)
+              summary(Data_Imputed$Urine_output)
+              summary(Data_Workable$Urine_output)
+      
+      #9. Neutrophils----
+      
+          #144/1176
+          #12.24%
+                  
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "Neutrophils"],Data_Workable$Neutrophils,use='complete.obs');data_cor
+              #Resp: Low for all, -0.915471215 for Lymphocite
+              
+          #Graph by cor    
+              par(mfrow=c(1,1))
+              plot(x = Data_Workable$Neutrophils, y = Data_Workable$Lymphocyte)
+              par(mfrow=c(1,3))
+              
+          #Behavior
+              hist(Data_Workable$`Neutrophils`)
+              qqnorm(Data_Workable$`Neutrophils`)
+              qqline(Data_Workable$`Neutrophils`)
+              dens = density(Data_Workable$`Neutrophils`, na.rm = TRUE)
+              plot(dens, main ="Densidad de NEU")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$`Neutrophils`);resultsSW
+              resultsAD <- ad.test(Data_Workable$`Neutrophils`);resultsAD
+              resultsKS <- ks.test(Data_Workable$`Neutrophils`, "pnorm", mean(Data_Workable$`Neutrophils`), sd(Data_Workable$`Neutrophils`))
+              #Non conclusive, no normal
+          
+          #Simple imputation: Median
+              Data_Imputed$`Neutrophils`[is.na(Data_Imputed$`Neutrophils`)] <- median(Data_Imputed$`Neutrophils`, na.rm = TRUE)
+              summary(Data_Imputed$`Neutrophils`)
+              summary(Data_Workable$`Neutrophils`)
+      
+          ###1.1
+              
+      #10.Basophils----
+      
+          #259/1176
+          #22.02%
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "Basophils"],Data_Workable$Basophils,use='complete.obs');data_cor
+              #Resp: Low for all
+          
+          #Behavior
+              hist(Data_Workable$`Basophils`, breaks = 50)
+              qqnorm(Data_Workable$`Basophils`)
+              qqline(Data_Workable$`Basophils`)
+              dens = density(Data_Workable$`Basophils`, na.rm = TRUE)
+              plot(dens, main ="Densidad de Baso")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$`Basophils`);resultsSW
+              resultsAD <- ad.test(Data_Workable$`Basophils`);resultsAD
+              resultsKS <- ks.test(Data_Workable$`Basophils`, "pnorm", mean(Data_Workable$`Basophils`), sd(Data_Workable$`Basophils`))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$`Basophils`[is.na(Data_Imputed$`Basophils`)] <- median(Data_Imputed$`Basophils`, na.rm = TRUE)
+              summary(Data_Imputed$`Basophils`)
+              summary(Data_Workable$`Basophils`)
+          
+      #11. Lymphocyte----
+          
+          #145/1176
+          #12.32%
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "Lymphocyte"],Data_Workable$Lymphocyte,use='complete.obs');data_cor
+              #Resp: Low for all, -0.915471215 for Neutrophils
+          
+          #Graph by cor
+              par(mfrow=c(1,1))
+              plot(x = Data_Workable$Lymphocyte, y = Data_Workable$Neutrophils)
+              par(mfrow=c(1,3))
+              
+          #Behavior
+              hist(Data_Workable$`Lymphocyte`)
+              qqnorm(Data_Workable$`Lymphocyte`)
+              qqline(Data_Workable$`Lymphocyte`)
+              dens = density(Data_Workable$`Lymphocyte`, na.rm = TRUE)
+              plot(dens, main ="Densidad de Lymp")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$`Lymphocyte`);resultsSW
+              resultsAD <- ad.test(Data_Workable$`Lymphocyte`);resultsAD
+              resultsKS <- ks.test(Data_Workable$`Lymphocyte`, "pnorm", mean(Data_Workable$`Lymphocyte`), sd(Data_Workable$`Lymphocyte`))
+              #Non conclusive, no normal
+          
+          #Simple imputation: Median
+              Data_Imputed$`Lymphocyte`[is.na(Data_Imputed$`Lymphocyte`)] <- median(Data_Imputed$`Lymphocyte`, na.rm = TRUE)
+              summary(Data_Imputed$`Lymphocyte`)
+              summary(Data_Workable$`Lymphocyte`)
+  
+                  ###1.2
+                  
+      #12. PT----
+      
+          #20/1176
+          #1.7%
+                  
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "PT"],Data_Workable$PT,use='complete.obs');data_cor
+              #Resp: Low for all, 0.99361137179 for INR
+                  
+          #Graph by cor
+              par(mfrow=c(1,1))
+              plot(x = Data_Workable$PT, y = Data_Workable$INR)
+              par(mfrow=c(1,3))
+              
+          #Behavior
+              hist(Data_Workable$PT)
+              qqnorm(Data_Workable$`PT`)
+              qqline(Data_Workable$`PT`)
+              dens = density(Data_Workable$`PT`, na.rm = TRUE)
+              plot(dens, main ="Densidad de PT")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$`PT`);resultsSW
+              resultsAD <- ad.test(Data_Workable$`PT`);resultsAD
+              resultsKS <- ks.test(Data_Workable$`PT`, "pnorm", mean(Data_Workable$`PT`), sd(Data_Workable$`PT`))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$`PT`[is.na(Data_Imputed$`PT`)] <- median(Data_Imputed$`PT`, na.rm = TRUE)
+              summary(Data_Imputed$`PT`)
+              summary(Data_Workable$`PT`)
+      
+                   ###2.1
+              
+      #13. INR----
+          
+          #20/1176
+          #1.7%
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "INR"],Data_Workable$INR, use='complete.obs');data_cor
+              #Resp: Low for all 0.993611372 for PT
+          
+          #Graph by Cor        
+              par(mfrow=c(1,1))
+              plot(x = Data_Workable$INR, y = Data_Workable$PT)
+              par(mfrow=c(1,3))
+              
+          #Behavior
+              hist(Data_Workable$`INR`)
+              qqnorm(Data_Workable$`INR`)
+              qqline(Data_Workable$`INR`)
+              dens = density(Data_Workable$`INR`, na.rm = TRUE)
+              plot(dens, main ="Densidad de INR")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$`INR`);resultsSW
+              resultsAD <- ad.test(Data_Workable$`INR`);resultsAD
+              resultsKS <- ks.test(Data_Workable$`INR`, "pnorm", mean(Data_Workable$`INR`), sd(Data_Workable$`INR`))
+              #Non conclusive, no normal
+          
+          #Simple imputation: Median
+              Data_Imputed$`INR`[is.na(Data_Imputed$`INR`)] <- median(Data_Imputed$`INR`, na.rm = TRUE)
+              summary(Data_Imputed$`INR`)
+              summary(Data_Workable$`INR`)
+      
+                  ###2.2
+              
+      #14. Creatine Kinase----
+      
+          #165/1176
+          #14.03%
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "Creatine_kinase"],Data_Workable$Creatine_kinase, use='complete.obs');data_cor
+              #Resp: Low for all
+          
+          #Behavior
+              hist(Data_Workable$Creatine_kinase, breaks = 20)
+              qqnorm(Data_Workable$Creatine_kinase)
+              qqline(Data_Workable$Creatine_kinase)
+              dens = density(Data_Workable$Creatine_kinase, na.rm = TRUE)
+              plot(dens, main ="Densidad de Creatine")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$Creatine_kinase);resultsSW
+              resultsAD <- ad.test(Data_Workable$Creatine_kinase);resultsAD
+              resultsKS <- ks.test(Data_Workable$Creatine_kinase, "pnorm", mean(Data_Workable$Creatine_kinase), sd(Data_Workable$Creatine_kinase))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$Creatine_kinase[is.na(Data_Imputed$Creatine_kinase)] <- median(Data_Imputed$Creatine_kinase, na.rm = TRUE)
+              summary(Data_Imputed$Creatine_kinase)
+              summary(Data_Workable$Creatine_kinase)
+      
+      #15. Glucose----
+      
+          #17/1176
+          #1.44%
+                  
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "glucose"],Data_Workable$glucose, use='complete.obs');data_cor
+              #Resp: Low for all
+          
+          #Behavior
+              hist(Data_Workable$`glucose`)
+              qqnorm(Data_Workable$`glucose`)
+              qqline(Data_Workable$`glucose`)
+              dens = density(Data_Workable$`glucose`, na.rm = TRUE)
+              plot(dens, main ="Densidad de Glucose")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$`glucose`);resultsSW
+              resultsAD <- ad.test(Data_Workable$`glucose`);resultsAD
+              resultsKS <- ks.test(Data_Workable$`glucose`, "pnorm", mean(Data_Workable$`glucose`), sd(Data_Workable$`glucose`))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$`glucose`[is.na(Data_Imputed$`glucose`)] <- median(Data_Imputed$`glucose`, na.rm = TRUE)
+              summary(Data_Imputed$`glucose`)
+              summary(Data_Workable$`glucose`)
+      
+      #16. Blood Calcium----
+      
+          #1/1176
+          #0.08%
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "Blood_calcium"],Data_Workable$Blood_calcium, use='complete.obs');data_cor
+              #Resp: Low for all
+          
+          #Behavior
+              hist(Data_Workable$Blood_calcium)
+              qqnorm(Data_Workable$Blood_calcium)
+              qqline(Data_Workable$Blood_calcium)
+              dens = density(Data_Workable$Blood_calcium, na.rm = TRUE)
+              plot(dens, main ="Densidad de Calcium")
+              #Resp: Maybe Normal
+              
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$Blood_calcium);resultsSW
+              resultsAD <- ad.test(Data_Workable$Blood_calcium);resultsAD
+              resultsKS <- ks.test(Data_Workable$Blood_calcium, "pnorm", mean(Data_Workable$Blood_calcium), sd(Data_Workable$Blood_calcium))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$Blood_calcium[is.na(Data_Imputed$Blood_calcium)] <- median(Data_Imputed$Blood_calcium, na.rm = TRUE)
+              summary(Data_Imputed$Blood_calcium)
+              summary(Data_Workable$Blood_calcium)
+      
+      
+      #17. PH----
+      
+          #291/1176
+          #24.74%
+                  
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "PH"],Data_Workable$PH, use='complete.obs');data_cor
+              #Resp: Low for all
+          
+          #Behavior
+              hist(Data_Workable$`PH`)
+              qqnorm(Data_Workable$`PH`)
+              qqline(Data_Workable$`PH`)
+              dens = density(Data_Workable$`PH`, na.rm = TRUE)
+              plot(dens, main ="Densidad de PH")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$`PH`);resultsSW
+              resultsAD <- ad.test(Data_Workable$`PH`);resultsAD
+              resultsKS <- ks.test(Data_Workable$`PH`, "pnorm", mean(Data_Workable$`PH`), sd(Data_Workable$`PH`))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$`PH`[is.na(Data_Imputed$`PH`)] <- median(Data_Imputed$`PH`, na.rm = TRUE)
+              summary(Data_Imputed$`PH`)
+              summary(Data_Workable$`PH`)
+          
+      #18. Lactic Acid----
+      
+          #228/1176
+          #19.38
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "Lactic_acid"],Data_Workable$Lactic_acid, use='complete.obs');data_cor
+              #Resp: Low for all
+          
+          #Behavior
+              hist(Data_Workable$Lactic_acid)
+              qqnorm(Data_Workable$Lactic_acid)
+              qqline(Data_Workable$Lactic_acid)
+              dens = density(Data_Workable$Lactic_acid, na.rm = TRUE)
+              plot(dens, main ="Densidad de Lactic Acid")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$Lactic_acid);resultsSW
+              resultsAD <- ad.test(Data_Workable$Lactic_acid);resultsAD
+              resultsKS <- ks.test(Data_Workable$Lactic_acid, "pnorm", mean(Data_Workable$Lactic_acid), sd(Data_Workable$Lactic_acid))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$Lactic_acid[is.na(Data_Imputed$Lactic_acid)] <- median(Data_Imputed$Lactic_acid, na.rm = TRUE)
+              summary(Data_Imputed$Lactic_acid)
+              summary(Data_Workable$Lactic_acid)
+      
+      #19. PCO----
+      
+          #293/1176
+          #24.91%
+          
+          #Cor
+              data_cor <- cor(Data_Workable[ , colnames(Data_Workable) != "PCO2"],Data_Workable$PCO2, use='complete.obs');data_cor
+              #Resp: Low for all
+          
+          #Behavior
+              hist(Data_Workable$`PCO2`)
+              qqnorm(Data_Workable$`PCO2`)
+              qqline(Data_Workable$`PCO2`)
+              dens = density(Data_Workable$`PCO2`, na.rm = TRUE)
+              plot(dens, main ="Densidad de PCO")
+              #Resp: Maybe Normal
+          
+          #Hyp. test
+              resultsSW <- shapiro.test(Data_Workable$`PCO2`);resultsSW
+              resultsAD <- ad.test(Data_Workable$`PCO2`);resultsAD
+              resultsKS <- ks.test(Data_Workable$`PCO2`, "pnorm", mean(Data_Workable$`PCO2`), sd(Data_Workable$`PCO2`))
+              #Non conclusive, not normal
+          
+          #Simple imputation: Median
+              Data_Imputed$`PCO2`[is.na(Data_Imputed$`PCO2`)] <- median(Data_Imputed$`PCO2`, na.rm = TRUE)
+              summary(Data_Imputed$`PCO2`)
+              summary(Data_Workable$`PCO2`)
+          
+          par(mfrow=c(1,1))
+      
+          
+          
+          
+#----Data Manipulation: Factorizing Binary Data----
+          
+      # binary_columns <- character()
+      # Data_Factorized = Data_Imputed
+      # 
+      # for (col in names(Data_Imputed)) {
+      #   unique_values <- unique(Data_Imputed[[col]])
+      #   if (length(unique_values) == 2 && all(unique_values %in% c(0, 1))) {
+      #     binary_columns <- c(binary_columns, col)
+      #   }
+      # }
+      # 
+      # # Convert binary columns to factors
+      # Data_Factorized[binary_columns] <- lapply(Data_Imputed[binary_columns], factor)
+      
+      
+      Data_Factorized=Data_Imputed
+          
+#----Subsets & Sampling----
+        
+      #1. Ratio of Outcome 
+          ratio = sum(Data_Factorized$outcome == 0) / sum(Data_Factorized$outcome == 1);ratio
+      
+      #2. Training and Prediction datasets proportions
+          t_prop = 0.7
+          p_prop = 0.3
+      
+      #3. Sampling Strategy
+          set.seed(123)
+          train_indices <- createDataPartition(Data_Factorized$outcome, p = t_prop, times = 1, list = FALSE)
+      
+      #4. Subsets
+          Data_Training <- Data_Factorized[train_indices, ]
+          Data_Prediction <- Data_Factorized[-train_indices, ]
+          Backup_Data_Prediction <- Data_Prediction
+          
+      #5. Oversampling (?)
+          # Data_Training_oversampled <- ovun.sample(outcome ~ ., data = Data_Training, method = "over", 
+          #                                       N = ratio * length(Data_Training$outcome[Data_Imputed$outcome == 1]), 
+          #                                       seed = 123)$dat
+          # ratio = sum(Data_Training_oversampled$outcome == 0) / sum(Data_Training_oversampled$outcome == 1);ratio
+
+#----Models----
+          
+      #1. Logistical Regression----
+          
+      #1.1  LR: Train & Save
+          model_LR = glm(Data_Training$outcome ~ .,data = Data_Training, family = binomial)
+          predictions_LR = predict(model_LR, newdata = Data_Prediction, type = "response")
+          saveRDS(model_LR, "./model_LR.rda")
+          
+      #1.2 LR: Comparison
+          Curve_Roc_LR = roc(Data_Prediction$outcome, predictions_LR) 
+          plot(Curve_Roc_LR, main = "ROC Curve - LR", xlab = "False Positive Rate", ylab = "True Positive Rate")
+          AUC_LR = Curve_Roc_LR$auc;AUC_LR
+      
+      #1.3 LR: 10-Fold Cross Validation
+          kfcv <- trainControl(method = "cv", number = 10)
+          model_LR_kfcv <- train(outcome ~ ., data = Data_Imputed, method = "glm", trControl = kfcv, family = "binomial")
+          predictions_LR_kfcv = predict(model_LR_kfcv, newdata = Data_Prediction)
+          Curve_Roc_LR_kfcv = roc(Data_Prediction$outcome, predictions_LR_kfcv) 
+          plot(Curve_Roc_LR_kfcv, main = "ROC Curve - 10 Fold LR", xlab = "False Positive Rate", ylab = "True Positive Rate")
+          AUC_LR_kfcv = Curve_Roc_LR_kfcv$auc;AUC_LR_kfcv
+          saveRDS(model_LR, "./model_LR_kfcv.rda")
+      
+      #2. XGBoost----    
+              
+      #2.1  XGB: Data
+          
+          # Prepare the training data, separating predicting and outcome data
+              X_train <- as.matrix(Data_Training[, !(colnames(Data_Training) %in% c("outcome"))])
+              y_train <- Data_Training$outcome
+          
+          # Prepare the prediction data, separating predicting and outcome data
+              X_pred <- as.matrix(Data_Prediction[, !(colnames(Data_Prediction) %in% c("outcome"))])
+              y_pred <- Data_Prediction$outcome
+          
+          # Convert data into DMatrix objects
+              train_dmatrix <- xgb.DMatrix(data = X_train, label = y_train)
+              pred_dmatrix <- xgb.DMatrix(data = X_pred)
+          
+      #2.2 XGB: Parameters
+            params <- list(
+              objective = "binary:logistic",
+              eval_metric = "logloss",
+              max_depth = 3,
+              eta = 0.1,
+              nrounds = 100
+            )
+            
+      #2.3 XGB: Train & Save  
+            model_XGB <- xgb.train(
+              params = params,
+              data = train_dmatrix,
+              nrounds = params$nrounds,
+              watchlist = list(train = train_dmatrix),
+              verbose = 1
+            )
+            saveRDS(model_XGB, "./model_XGB.rda")
+        
+            predictions_XGB <- predict(model_XGB, newdata = pred_dmatrix);print(predictions_XGB)
+            true_labels = Data_Prediction$outcome
+            Curve_Roc_XGB <- roc(Data_Prediction$outcome, predictions_XGB) 
+            plot(Curve_Roc_XGB, main = "ROC Curve - XGB",xlab = "False Positive Rate", ylab = "True Positive Rate")
+            AUC_XGB <- auc(Curve_Roc_XGB);AUC_XGB
+          
+      #2.4 XGB: 10 Fold Cross Validation
+            # model_XGB_kfcv <- xgb.cv(
+            #   params = params,
+            #   data = xgb.DMatrix(data = X_train, label = y_train),
+            #   nfold = 10,
+            #   stratified = TRUE,
+            #   metrics = "logloss",
+            #   early_stopping_rounds = 10,
+            #   nrounds = 25,
+            #   verbose = 1
+            # )
+            # saveRDS(model_XGB_kfcv, "./model_XGB_kfcv.rda")
+            # predictions_XGB_kfcv <- predict(model_XGB_kfcv, newdata = pred_dmatrix);print(predictions)
+            # Avg_LogLoss = mean(model_XGB_kfcv$evaluation_log$test_logloss_mean);Avg_LogLoss
+            
+      #3. Random Forest----
+            
+      #3.1 RF:  parameters
+            num_trees = 1000
+            features = sqrt(ncol(Data_Training))
+            
+      #3.2 RF: Train & Save
+            model_RF = randomForest(outcome ~ ., data = Data_Training, ntree = num_trees, mtry = features);model_RF
+            saveRDS(model_RF, "./model_RF.rda")
+            predictions_RF = predict(model_RF, newdata = Data_Prediction);predictions_RF
+            Curve_Roc_RF <- roc(Data_Prediction$outcome, predictions_RF) 
+            plot(Curve_Roc_RF, main = "ROC Curve - RF",xlab = "False Positive Rate", ylab = "True Positive Rate")
+            AUC_RF <- auc(Curve_Roc_RF);AUC_RF
+            
+      # #3.3 RF: 10 Fold Cross vlidation
+      #       
+      #       ctrl = trainControl(method = "cv", number = 10, summaryFunction = twoClassSummary, classProbs = TRUE, verboseIter = FALSE)
+      #       model_RF_kfcv <- train(outcome ~ ., data = Data_Training, method = "rf", trControl = ctrl, ntree = num_trees, mtry = features, metric = "RMSE");model_RF_kfcv
+      #       saveRDS(model_RF, "./model_RF.rda")
+      #       predictions_RF = predict(model_RF, newdata = Data_Prediction);predictions_RF
+      #       Curve_Roc_RF <- roc(Data_Prediction$outcome, predictions_RF) 
+      #       plot(Curve_Roc_RF, main = "ROC Curve - RF",xlab = "False Positive Rate", ylab = "True Positive Rate")
+      #       AUC_RF <- auc(Curve_Roc_RF);AUC_RF
+         
+      #4. Lasso
+            
+        #4.1  LS: Data
+        
+        # Prepare the training data, separating predicting and outcome data
+        X_train <- as.matrix(Data_Training[, !(colnames(Data_Training) %in% c("outcome"))])
+        y_train <- Data_Training$outcome
+        
+        # Prepare the prediction data, separating predicting and outcome data
+        X_pred <- as.matrix(Data_Prediction[, !(colnames(Data_Prediction) %in% c("outcome"))])
+        y_pred <- Data_Prediction$outcome
+
+        #4.2 LS: Train & Save  
+        model_LS <- glmnet(X_train, y_train, alpha = 1)
+        saveRDS(model_LS, "./model_LS.rda")
+        
+        # predictions_LS <- predict(model_LS, newx = X_pred)
+        # Curve_Roc_LS <- roc(Data_Prediction$outcome, as.numeric(predictions_LS)) 
+        # plot(Curve_Roc_LS, main = "ROC Curve - LS",xlab = "False Positive Rate", ylab = "True Positive Rate")
+        # AUC_LS <- auc(Curve_Roc_LS);AUC_LS     
+            
+            
+    
+#----Test Prediction using RDA file----
+    newdata = read_excel("Data/test_pred.xlsx");View(newdata)
+    model_pred = readRDS("model_LR.rda")
+    user_prediction = predict(model_pred, type="response", newdata = newdata);user_prediction*100
+    str(newdata) 
+    summary(newdata)
+    stat.desc(newdata)
+    descr(newdata)
+    dfSummary(newdata)
+            
+            
+            
+            
+            
+            
+#write.csv(Data_Imputed, "Data/dataImputed.csv", row.names=FALSE)
